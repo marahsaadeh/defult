@@ -1,0 +1,182 @@
+
+ThisBuild / version := "0.1.0-SNAPSHOT"
+
+ThisBuild / scalaVersion := "2.12.8"
+lazy val root = (project in file("."))
+  .settings(
+    name := "Simple Search Engine",
+    libraryDependencies ++= Seq(
+      "org.mongodb.spark" %% "mongo-spark-connector" % "3.0.1" ,
+      "org.apache.spark" %% "spark-core" % "3.5.1",
+      "org.apache.spark" %% "spark-sql" % "3.5.1"
+    )
+  )
+
+// إضافة هذه الخيارات للسماح لـ Spark بالوصول إلى الفئات المطلوبة
+
+Compile / run / fork := true
+resolvers += "Maven Central" at "https://repo1.maven.org/maven2/"
+resolvers += "Sonatype Releases" at "https://oss.sonatype.org/content/repositories/releases/"
+
+javaOptions += "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
+import scala.math.Ordering
+import com.mongodb.spark.MongoSpark
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.Dataset
+import org.apache.spark.sql.Encoders
+object main {
+  def main(args: Array[String]): Unit = {
+    val sparkConf = new SparkConf()
+      .setMaster("local[*]")
+      .setAppName("Counting words")
+    val sc = new SparkContext(sparkConf)
+    // for reduce logging output
+    sc.setLogLevel("ERROR")
+    // إنشاء SparkSession
+
+    val spark = SparkSession.builder()
+      .appName("Simple Search Engine")
+      .config("spark.mongodb.input.uri", "mongodb://localhost:27017/SearchEngineDb.InvertIndex")
+      .config("spark.mongodb.output.uri", "mongodb://localhost:27017/SearchEngineDb.InvertIndex")
+      .getOrCreate()
+
+    println("-------------------Hello, Scala!-------------------")
+
+    val mongodb_host_name = "localhost"
+    val mongodb_port_no = "27017"
+    val mongodb_database_name = "SearchEngineDb"
+    val mongodb_collection_name = "InvertIndex"
+
+    val spark_mongodb_output_uri = "mongodb://" + mongodb_host_name + ":" + mongodb_port_no + "/" + mongodb_database_name + "." + mongodb_collection_name
+    println("Printing spark_mongodb_output_uri: " + spark_mongodb_output_uri)
+
+    val invertIndex_df = spark.read
+      .format("mongo")
+      .option("uri", spark_mongodb_output_uri)
+      .option("database", mongodb_database_name)
+      .option("collection", mongodb_collection_name)
+      .load()
+
+
+    // عرض هيكل DataFrame
+    invertIndex_df.printSchema()
+    println("Number of records in InvertIndex: " + invertIndex_df.count())
+
+
+    // عرض المحتويات على شكل جدول
+    println("Contents of InvertIndex:")
+    invertIndex_df.show(numRows = 3, truncate = false) // تغيير numRows حسب الحاجة
+/*
+    // Sample JSON data (modify as needed)
+    val jsonData =
+      """
+    { "_id": "67122f55de31381427e01471", "word": "222tttttest", "count": 25, "document_list": ["doc5.txt", "doc6.txt", "doc9.txt"] }
+    """
+
+
+    // تحويل الـ JSON إلى Dataset[String]
+    val jsonDS: Dataset[String] = spark.createDataset(Seq(jsonData))(Encoders.STRING)
+
+    // تحويل الـ Dataset إلى DataFrame باستخدام read.json
+    val new_invertIndex_df = spark.read.json(jsonDS)
+
+    // عرض هيكل DataFrame للتأكد من التحويل
+    new_invertIndex_df.printSchema()
+
+    // كتابة البيانات الجديدة إلى MongoDB
+    new_invertIndex_df.write
+      .format("mongo")
+      .option("uri", spark_mongodb_output_uri)
+      .option("database", mongodb_database_name)
+      .option("collection", mongodb_collection_name)
+      .mode("append") // لإضافة البيانات الجديدة بدلاً من استبدالها
+      .save()
+
+    // تأكيد أن البيانات الجديدة تم إدراجها
+    val updated_invertIndex_df = spark.read
+      .format("mongo")
+      .option("uri", spark_mongodb_output_uri)
+      .option("database", mongodb_database_name)
+      .option("collection", mongodb_collection_name)
+      .load()
+
+    // عرض المحتويات المحدثة
+    println("Updated Contents of InvertIndex:")
+    updated_invertIndex_df.show(numRows = 5, truncate = false)
+    println("Number of records in InvertIndex: " + updated_invertIndex_df.count())*/
+    //Passing a list of files via Program arguments
+
+    //val rddContent = sc.textFile("data/doc1.txt")
+    // قراءة جميع الملفات الممررة عبر args وتحويلها إلى RDD واحد
+    // قراءة الملفات التي تم تمريرها عبر الـ args
+ /*val rddContent = sc.wholeTextFiles(args.mkString(","))
+
+    // معالجة الـ RDD لبناء الفهرس المعكوس
+   val invertedIndex = rddContent
+      .flatMap { case (filename, content) =>
+        val documentName = filename.split("/").last // استخراج اسم الملف
+        content.split("\\s+").map(word => (word, documentName)) // ربط كل كلمة باسم المستند
+      }
+       .distinct() // إزالة التكرارات لنحصل على الكلمة مع المستند مرة واحدة
+      .groupByKey() // تجميع الكلمات والمستندات
+     .mapValues(docs => (docs.size, docs.toList.sorted)) // حساب عدد المستندات وترتيب القائمة
+
+       // طباعة محتويات الـ RDD الجديدة
+
+
+
+      val results = invertedIndex
+       .sortByKey() // ترتيب الكلمات أبجديًا
+        .collect() // جمع النتائج في مصفوفة
+
+
+     results.foreach { case (word, (count, docs)) =>
+        println(s"$word, $count, ${docs.mkString(", ")}") // طباعة النتيجة بالشكل المطلوب
+      }
+
+      // طباعة عدد الملفات الممررة
+      println(s"Number of files passed: ${args.length}")
+
+      // تحويل RDD إلى JSON
+      val jsonRDD: RDD[String] = invertedIndex
+        .sortByKey()
+        .map { case (word, (count, docs)) =>
+          s"""{
+               "word": "$word",
+               "count": $count,
+               "document_list": ["${docs.mkString("\", \"")}"]
+               }"""
+        }
+
+      // طباعة الـ RDD للتحقق من التحويل
+      jsonRDD.collect().foreach(println)*/
+
+//convert to Data Frame becuse Spark يتعامل مع البيانات بشكل أكثر كفاءة عند استخدام DataFrame
+
+    // تحويل RDD إلى DataFrame
+
+    /* val rddWordTuples = rddContent
+       // rddContent = |First Word in file|Second Word in file|third Word in file|...{Like 1D Array}
+       //"Each Word is placed in a record in the RDD"
+       .flatMap(sentence => sentence.split(" "))
+
+       //rddContent : { x._1: string; x._2: number } ===> (key="word",value=1)
+       .map(word => (word, 1))
+
+       // Combine the same key into a single tuple and perform the operation (_ + _) on all values for this tuple
+       .reduceByKey(_ + _) //As if we were saying (x,y) => x+y
+
+     // take first 5 in RDD "rddContent"
+     rddWordTuples.collect().take(5).foreach(x => {
+       //print the tuple   (x._1   ,  x._2)
+       println(s"The word (${x._1}) has occurred (${x._2}) times")
+     })*/
+  }
+}
